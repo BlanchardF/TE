@@ -1,0 +1,177 @@
+#Dry run
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_permutation -n &> nohup_snakemake_permutation &
+
+#Unlock
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_permutation --unlock  &> nohup_snakemake_permutation &
+
+#Realcommand
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_permutation --cores 16 &> nohup_snakemake_permutation &
+
+
+############################################
+##                CONFIG                  ##
+############################################
+
+# Chemins globaux
+
+Version = "All"
+
+Data = f"/home/data/fblanchard/TE/test_permutation/Data/{Version}" 
+Results = f"/home/data/fblanchard/TE/test_permutation/Results/{Version}"
+
+Genome = "/home/data/fblanchard/TE/test_permutation/Data" 
+
+Lignee = f"{Data}/Lignee"
+Region = f"{Data}/Region"
+
+
+
+import os
+
+# Liste des fichiers présents dans le dossier Lignee
+lignee_files = [f for f in os.listdir(Lignee) if os.path.isfile(os.path.join(Lignee, f))]
+
+# Extraire les noms sans extension
+lignee_ids = [os.path.splitext(f)[0] for f in lignee_files]
+
+
+
+
+# Lignée : source des "filtered.bed"
+lignee_ids = [os.path.splitext(f)[0] for f in os.listdir(Lignee) if f.endswith(".bed")]
+
+# Region : fichiers de comparaison
+region_files = [f for f in os.listdir(Region) if f.endswith(".bed")]
+region_ids = [os.path.splitext(f)[0] for f in region_files]
+
+# Paramètre : nombre de permutations
+n_permutations = 1000
+
+
+
+
+from itertools import product
+
+rule all:
+    input:
+        expand(f"{Results}/{{sample}}/missing_contigs.txt", sample=lignee_ids),
+        expand(f"{Results}/{{sample}}/filtered.bed", sample=lignee_ids),
+        expand(f"{Results}/{{a}}/vs_{{b}}/permutations.txt", a=lignee_ids, b=region_ids),
+        expand(f"{Results}/{{a}}/vs_{{b}}/real_intersect.txt", a=lignee_ids, b=region_ids),
+        expand(f"{Results}/{{a}}/vs_{{b}}/summary.txt", a=lignee_ids, b=region_ids)  
+
+
+
+
+
+
+
+
+rule get_missing_contigs:
+    input:
+        bed = f"{Lignee}/{{sample}}.bed",
+        ref = f"{Genome}/G0_Wb_merged.genome"
+    output:
+        missing = f"{Results}/{{sample}}/missing_contigs.txt",
+    shell:
+        """
+
+        mkdir -p $(dirname {output.missing})
+
+        # Extraire les contigs du fichier BED (col 1)
+        cut -f1 {input.bed} | sort | uniq > {output.missing}.tmp_bed_contigs
+
+        # Extraire les contigs de référence (col 1 aussi)
+        cut -f1 {input.ref} | sort | uniq > {output.missing}.tmp_ref_contigs
+
+        # Trouver les contigs présents dans le BED mais absents de la référence
+        comm -23 {output.missing}.tmp_bed_contigs {output.missing}.tmp_ref_contigs > {output.missing}
+
+        # Nettoyage
+        rm {output.missing}.tmp_*
+        """
+
+
+rule filter_bed_on_contigs:
+    input:
+        bed = f"{Lignee}/{{sample}}.bed",
+        missing = f"{Results}/{{sample}}/missing_contigs.txt"
+    output:
+        filtered = f"{Results}/{{sample}}/filtered.bed"
+    shell:
+        """
+        if [ -s {input[1]} ]; then
+            grep -v -F -f {input[1]} {input[0]} | cut -f1-6 > {output}
+        else
+            cut -f1-6 {input[0]} > {output}
+        fi
+        """
+
+
+
+rule permutation_test:
+    input:
+        filtered = f"{Results}/{{a}}/filtered.bed",
+        other = f"{Region}/{{b}}.bed",
+        genome = f"{Genome}/G0_Wb_merged.genome"
+    output:
+        result = f"{Results}/{{a}}/vs_{{b}}/permutations.txt"
+    params:
+        n = n_permutations
+    shell:
+        """
+        mkdir -p $(dirname {output.result})
+
+        > {output.result}  # Vider/fichier vierge au début
+
+        for i in $(seq 1 {params.n}); do
+            bedtools shuffle -i {input.filtered} -g {input.genome} -noOverlapping -seed $i -chrom > tmp_{wildcards.a}_{wildcards.b}_shuffled.bed
+            bedtools intersect -a tmp_{wildcards.a}_{wildcards.b}_shuffled.bed -b {input.other} -u | wc -l >> {output.result}
+            rm tmp_{wildcards.a}_{wildcards.b}_shuffled.bed
+        done
+        """
+
+
+
+rule real_intersect:
+    input:
+        filtered = f"{Results}/{{a}}/filtered.bed",
+        other = f"{Region}/{{b}}.bed"
+    output:
+        result = f"{Results}/{{a}}/vs_{{b}}/real_intersect.txt"
+    shell:
+        """
+        mkdir -p $(dirname {output.result})
+
+        bedtools intersect -a {input.filtered} -b {input.other} -u | wc -l > {output.result}
+        #-f 0.0005
+        """
+
+
+
+
+
+rule summarize_permutation:
+    input:
+        permutations = f"{Results}/{{a}}/vs_{{b}}/permutations.txt",
+        real = f"{Results}/{{a}}/vs_{{b}}/real_intersect.txt"
+    output:
+        summary = f"{Results}/{{a}}/vs_{{b}}/summary.txt"
+    run:
+        # Lire les valeurs réelles et permutations
+        with open(input.real) as f:
+            real_value = int(f.read().strip())
+        with open(input.permutations) as f:
+            perm_values = [int(line.strip()) for line in f]
+
+        # Calcul p-value (exemple : proportion de permutations >= valeur réelle)
+        pval = sum(1 for v in perm_values if v >= real_value) / len(perm_values)
+
+        # Écrire résumé
+        with open(output.summary, "w") as f:
+            f.write(f"Real_intersect\t{real_value}\n")
+            f.write(f"Mean_permutation\t{sum(perm_values)/len(perm_values):.2f}\n")
+            f.write(f"P_value\t{pval:.4f}\n")
+
+
+# for file in All/*/*/summary.txt; do   echo "=== $file ===";   cat "$file";   echo ""; done > All_result.txt 

@@ -1,0 +1,843 @@
+#Dry run
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakmake_pipeline_alarue -n &> nohup_snakmake_pipeline_alarue &
+
+#Unlock
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakmake_pipeline_alarue --unlock  &> nohup_snakmake_pipeline_alarue &
+
+#Realcommand
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakmake_pipeline_alarue --cores 16 &> nohup_snakmake_pipeline_alarue &
+
+############################################
+##                CONFIG                  ##
+############################################
+
+# Chemins globaux
+WORKDIR = "/home/data/fblanchard/TE" 
+GENOME = "S100_Wb_merged"
+READS = "/home/data/alarue/merge_sequencing/Wb+_data"
+REFGENOME ="dm6.fa"
+REFGENOME_DIR = "/home/data/alarue/ref_genomes"
+MCTE = "MCTE_clem.fasta" 
+GraffiTE_G0="graffiTE_againstG0_Wb"
+
+LOGS_DIR="/home/data/fblanchard/TE/logs/Wb+"
+OUTPUT=f"{WORKDIR}/Results/Wb+"
+DATA=f"{WORKDIR}/Data"
+
+
+# Chemins des programmes
+import os
+FLYE_PATH = f"/home/data/fblanchard/miniconda3/envs/flye_env/bin:{os.environ['PATH']}"
+FLYE = "/home/data/fblanchard/miniconda3/envs/flye_env/bin/flye"
+MINIMAP2 = "/usr/local/bin/minimap2"
+RACON = "/usr/local/bin/racon"
+SAMTOOLS = "/usr/local/bin/samtools"
+PURGE_HAPLOTIGS = "singularity exec /home/data/fblanchard/tools/purge_haplotigs_1.1.3--hdfd78af_0.sif purge_haplotigs"
+RAGTAG = f"singularity exec --bind {REFGENOME_DIR}:{REFGENOME_DIR} /home/data/fblanchard/tools/ragtag_2.1.0--pyhb7b1952_0.sif ragtag.py"
+REPEATMASKER = f"singularity exec --bind {OUTPUT}:{OUTPUT} /home/data/fblanchard/tools/repeatmodeler2.sif RepeatMasker"
+GRAFFITE = "nextflow run cgroza/GraffiTE"
+DGENIES = "/home/data/fblanchard/miniconda3/envs/dgenies/bin/dgenies"
+CRAMINO = "/home/data/fblanchard/miniconda3/bin/cramino"
+BUSCO = "singularity exec /home/data/fblanchard/tools/busco.sif busco"
+QUAST = "singularity exec /home/data/fblanchard/tools/quast.sif quast"
+NANOPLOT = f"singularity exec --bind {READS}:{READS} /home/data/fblanchard/tools/nanoplot_1.41.0--pyhdfd78af_0.sif NanoPlot"
+RASUSA = "/home/data/fblanchard/miniconda3/bin/rasusa"
+TREMOLO_SIMG = "/home/data/fblanchard/tools/TrEMOLO.simg"
+TREMOLO = "/home/data/fblanchard/tools/TrEMOLO/run.snk"
+
+
+# Dossiers de sortie
+FLYE_DIR = f"{OUTPUT}/flye2"
+RACON_DIR = f"{OUTPUT}/racon"
+PURGE_DIR = f"{OUTPUT}/purge"
+RAGTAG_DIR = f"{OUTPUT}/ragtag"
+REPEATMASKER_DIR =f"{OUTPUT}/repeatmasker"
+GRAFFITE_DIR =f"{OUTPUT}/graffiTE"
+QUAST_DIR=f"{OUTPUT}/quast"
+BUSCO_DIR=f"{OUTPUT}/busco"
+NANOPLOT_DIR=f"{OUTPUT}/nanoplot"
+MINIMAP_DIR=f"{OUTPUT}/minimap"
+CRAMINO_DIR=f"{OUTPUT}/cramino"
+RASUSA_DIR=f"{OUTPUT}/rasusa"
+TREMOLO_DIR=f"{OUTPUT}/tremolo"
+
+rule all:
+    input:
+        #flye
+        f"{FLYE_DIR}/{GENOME}/assembly.fasta",
+
+        #racon
+        f"{RACON_DIR}/{GENOME}/{GENOME}_racon4.fasta",
+
+        #purge
+        expand(PURGE_DIR + "/{genome}/purge_done.flag", genome=GENOME),
+
+        #ragatag
+        expand(RAGTAG_DIR + "/{genome}/ragtag_done.flag", genome=GENOME),
+
+        #repeatmasker
+        expand(REPEATMASKER_DIR + "/{genome}/repeatmasker_done.flag", genome=GENOME),
+
+        #GraffiTE
+        #expand(GRAFFITE_DIR + "/{genome}/GraffiTE_done.flag", genome=GENOME),  #pas encire fonctionnel 
+
+        #Quast
+        expand(QUAST_DIR + "/{genome}/Quast_racon1_done.flag", genome=GENOME),
+        expand(QUAST_DIR + "/{genome}/Quast_racon2_done.flag", genome=GENOME), 
+        expand(QUAST_DIR + "/{genome}/Quast_racon3_done.flag", genome=GENOME),
+        expand(QUAST_DIR + "/{genome}/Quast_racon4_done.flag", genome=GENOME),
+        expand(QUAST_DIR + "/{genome}/Quast_assembly_done.flag", genome=GENOME),
+        expand(QUAST_DIR + "/{genome}/Quast_curated_done.flag", genome=GENOME),
+        expand(QUAST_DIR + "/{genome}/Quast_ragtag_done.flag", genome=GENOME),
+
+        #Busco 
+        expand(BUSCO_DIR + "/{genome}/Busco_racon1_done.flag", genome=GENOME),
+        expand(BUSCO_DIR + "/{genome}/Busco_racon2_done.flag", genome=GENOME),
+        expand(BUSCO_DIR + "/{genome}/Busco_racon3_done.flag", genome=GENOME),
+        expand(BUSCO_DIR + "/{genome}/Busco_racon4_done.flag", genome=GENOME),
+        expand(BUSCO_DIR + "/{genome}/Busco_curated_done.flag", genome=GENOME),
+        expand(BUSCO_DIR + "/{genome}/Busco_ragtag_done.flag", genome=GENOME),
+
+        #Nanoplot
+        expand(NANOPLOT_DIR + "/{genome}/nanoplot_done.flag", genome=GENOME),
+
+        #Minimap
+        expand(MINIMAP_DIR + "/{genome}/{genome}.bam", genome=GENOME),
+
+        #Samtools
+        expand(MINIMAP_DIR + "/{genome}/{genome}_coverage.txt", genome=GENOME),
+
+        #Cramino
+        expand(CRAMINO_DIR + "/{genome}/{genome}_hist.txt", genome=GENOME),
+        expand(CRAMINO_DIR + "/{genome}/{genome}_sorted_hist.txt", genome=GENOME),
+
+        #Rasusa
+        expand(RASUSA_DIR + "/{genome}/rasusa_done.flag", genome=GENOME),
+
+        #Tremolo
+        expand(TREMOLO_DIR + "/{genome}/config.yaml", genome=GENOME),
+        expand(TREMOLO_DIR + "/{genome}/Tremolo_done.flag", genome=GENOME),
+
+        #TE_ins_del
+        expand(TREMOLO_DIR + "/{genome}/{genome}_INS.bed", genome=GENOME),
+        expand(TREMOLO_DIR + "/{genome}/{genome}_DEL.bed", genome=GENOME)
+
+
+rule flye_assembly:
+    input:
+        reads = READS + "/{genome}.fastq.gz"
+    output:
+        assembly = f"{FLYE_DIR}/assembly.fasta"
+    log:
+        out = f"{LOGS_DIR}/flye_{GENOME}.out",
+        err = f"{LOGS_DIR}/flye_{GENOME}.err"
+    shell:
+        """
+        mkdir -p {WORKDIR}
+        mkdir -p {FLYE_DIR}
+        mkdir -p {FLYE_DIR}/{wildcards.genome}
+
+        PATH={FLYE_PATH}
+        {FLYE} --nano-raw {input.reads} --out-dir {FLYE_DIR}/{wildcards.genome} --threads 16 > {log.out} 2> {log.err}
+        """
+
+rule racon_round1:
+    input:
+        fasta = OUTPUT + "/flye2/{genome}/assembly.fasta",
+        reads = READS + "/{genome}.fastq.gz"
+    output:
+        racon = RACON_DIR + "/{genome}/{genome}_racon1.fasta",
+        sam = RACON_DIR + "/{genome}/{genome}_reads1.sam"
+    log:
+        err_minimap = LOGS_DIR + "/minimap_1_{genome}.err",
+        err_racon = LOGS_DIR + "/racon_1_{genome}.err"
+    shell:
+        """
+        mkdir -p {RACON_DIR}/{wildcards.genome}
+
+        {MINIMAP2} -t 16 -ax map-ont {input.fasta} {input.reads} > {output.sam} 2> {log.err_minimap}
+
+        {RACON} -t 16 {input.reads} {output.sam} {input.fasta} > {output.racon} 2> {log.err_racon}
+        """
+
+
+rule racon_round2:
+    input:
+        fasta = RACON_DIR + "/{genome}/{genome}_racon1.fasta",
+        reads = READS + "/{genome}.fastq.gz"
+    output:
+        racon = RACON_DIR + "/{genome}/{genome}_racon2.fasta",
+        sam = RACON_DIR + "/{genome}/{genome}_reads2.sam"
+    log:
+        err_minimap = LOGS_DIR + "/minimap_2_{genome}.err",
+        err_racon = LOGS_DIR + "/racon_2_{genome}.err"
+    shell:
+        """
+        mkdir -p {RACON_DIR}/{wildcards.genome}
+
+        {MINIMAP2} -t 16 -ax map-ont {input.fasta} {input.reads} > {output.sam} 2> {log.err_minimap}
+
+        {RACON} -t 16 {input.reads} {output.sam} {input.fasta} > {output.racon} 2> {log.err_racon}
+        """
+
+
+
+rule racon_round3:
+    input:
+        fasta = RACON_DIR + "/{genome}/{genome}_racon2.fasta",
+        reads = READS + "/{genome}.fastq.gz"
+    output:
+        racon = RACON_DIR + "/{genome}/{genome}_racon3.fasta",
+        sam = RACON_DIR + "/{genome}/{genome}_reads3.sam"
+    log:
+        err_minimap = LOGS_DIR + "/minimap_3_{genome}.err",
+        err_racon = LOGS_DIR + "/racon_3_{genome}.err"
+    shell:
+        """
+        mkdir -p {RACON_DIR}/{wildcards.genome}
+
+        {MINIMAP2} -t 16 -ax map-ont {input.fasta} {input.reads} > {output.sam} 2> {log.err_minimap}
+
+        {RACON} -t 16 {input.reads} {output.sam} {input.fasta} > {output.racon} 2> {log.err_racon}
+        """
+
+
+rule racon_round4:
+    input:
+        fasta = RACON_DIR + "/{genome}/{genome}_racon3.fasta",
+        reads = READS + "/{genome}.fastq.gz"
+    output:
+        racon = RACON_DIR + "/{genome}/{genome}_racon4.fasta",
+        sam = RACON_DIR + "/{genome}/{genome}_reads4.sam"
+    log:
+        err_minimap = LOGS_DIR + "/minimap_4_{genome}.err",
+        err_racon = LOGS_DIR + "/racon_4_{genome}.err"
+    shell:
+        """
+        mkdir -p {RACON_DIR}/{wildcards.genome}
+
+        {MINIMAP2} -t 16 -ax map-ont {input.fasta} {input.reads} > {output.sam} 2> {log.err_minimap}
+
+        {RACON} -t 16 {input.reads} {output.sam} {input.fasta} > {output.racon} 2> {log.err_racon}
+        """
+
+
+rule purge_haplotigs:
+    input:
+        fasta=RACON_DIR + "/{genome}/{genome}_racon4.fasta",
+        reads=READS + "/{genome}.fastq.gz"
+    output:
+        curated_fasta=PURGE_DIR + "/{genome}/{genome}_curated.fasta",
+        flag=PURGE_DIR + "/{genome}/purge_done.flag"
+    log:
+        out=LOGS_DIR + "/purge_haplotigs_{genome}.log",
+        err=LOGS_DIR + "/purge_haplotigs_{genome}.err"
+    shell:
+        """
+        mkdir -p {PURGE_DIR}
+        mkdir -p {PURGE_DIR}/{wildcards.genome}
+
+        {MINIMAP2} -t 16 -ax map-ont {input.fasta} {input.reads} | \
+        {SAMTOOLS} view -b -h -o {PURGE_DIR}/{wildcards.genome}/polished_reads.bam \
+        > {log.out} 2> {log.err}
+
+        {SAMTOOLS} sort \
+        -o {PURGE_DIR}/{wildcards.genome}/polished_reads_sorted.bam \
+        {PURGE_DIR}/{wildcards.genome}/polished_reads.bam \
+        >> {log.out} 2>> {log.err}
+
+        {SAMTOOLS} index {PURGE_DIR}/{wildcards.genome}/polished_reads_sorted.bam \
+        >> {log.out} 2>> {log.err}
+
+        {SAMTOOLS} faidx {input.fasta} \
+        >> {log.out} 2>> {log.err}
+
+        cd {PURGE_DIR}/{wildcards.genome} && \
+        {PURGE_HAPLOTIGS} hist \
+        -b polished_reads_sorted.bam \
+        -g {input.fasta} \
+        >> {log.out} 2>> {log.err}
+
+        {PURGE_HAPLOTIGS} cov \
+        -i {PURGE_DIR}/{wildcards.genome}/polished_reads_sorted.bam.200.gencov \
+        -l 10 -m 100 -h 200 \
+        -o {PURGE_DIR}/{wildcards.genome}/coverage_stats.csv \
+        >> {log.out} 2>> {log.err}
+
+        {PURGE_HAPLOTIGS} purge \
+        -g {input.fasta} \
+        -c {PURGE_DIR}/{wildcards.genome}/coverage_stats.csv \
+        -d {PURGE_DIR}/{wildcards.genome}/{wildcards.genome}.dotplot \
+        -b {PURGE_DIR}/{wildcards.genome}/polished_reads_sorted.bam \
+        -o {PURGE_DIR}/{wildcards.genome}/{wildcards.genome}_curated \
+        >> {log.out} 2>> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule ragtag_scaffold:
+    input:
+        curated=PURGE_DIR + "/{genome}/{genome}_curated.fasta"
+    output:
+        flag=RAGTAG_DIR + "/{genome}/ragtag_done.flag"
+    log:
+        out=LOGS_DIR + "/ragtag_{genome}.log",
+        err=LOGS_DIR + "/ragtag_{genome}.err"
+    shell:
+        """
+        mkdir -p {RAGTAG_DIR}
+        mkdir -p {RAGTAG_DIR}/{wildcards.genome}
+
+        {RAGTAG} scaffold {REFGENOME_DIR}/{REFGENOME} {input.curated} \
+        -o {RAGTAG_DIR}/{wildcards.genome} -u \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule RepeatMasker:
+    input:
+        flag=RAGTAG_DIR + "/{genome}/ragtag_done.flag",
+        library = DATA + "/" + MCTE 
+    output:
+        flag=REPEATMASKER_DIR + "/{genome}/repeatmasker_done.flag"
+    log:
+        out=LOGS_DIR + "/repeatmasker_{genome}.log",
+        err=LOGS_DIR + "/repeatmasker_{genome}.err"
+    shell:
+        """
+        mkdir -p {REPEATMASKER_DIR}
+        mkdir -p {REPEATMASKER_DIR}/{wildcards.genome}
+
+        {REPEATMASKER} -pa 16 -lib {input.library} -xsmall -gff -dir {REPEATMASKER_DIR}/{wildcards.genome} {RAGTAG_DIR}/{wildcards.genome}/ragtag.scaffold.fasta  \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule GraffiTE:
+    input:
+        flag=RAGTAG_DIR + "/{genome}/ragtag_done.flag",
+        library = DATA + "/" + MCTE 
+    output:
+        flag=GRAFFITE_DIR + "/{genome}/GraffiTE_done.flag"
+    log:
+        out=LOGS_DIR + "/GraffiTE_{genome}.log",
+        err=LOGS_DIR + "/GraffiTE_{genome}.err"
+    shell:
+        """
+        mkdir -p {GRAFFITE_DIR}
+        mkdir -p {GRAFFITE_DIR}/{wildcards.genome}
+
+        {GRAFFITE} \
+        --assemblies {REFGENOME_DIR}/{GraffiTE_G0}/ \
+        --TE_library {input.library} \
+        --reference {RAGTAG_DIR}/{wildcards.genome}/ragtag.scaffold.fasta \
+        --map_asm_memory 60GB \
+        --svim_asm_memory 60GB \
+        --repeatmasker_memory 60GB \
+        --genotype false 
+
+
+        touch {output.flag}
+        """
+
+
+rule Quast_1:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon1.fasta"
+    output:
+        flag=QUAST_DIR + "/{genome}/Quast_racon1_done.flag"
+    log:
+        out=LOGS_DIR + "/quast_racon1_{genome}.log",
+        err=LOGS_DIR + "/quast_racon1_{genome}.err"
+    shell:
+        """
+        mkdir -p {QUAST_DIR}
+        mkdir -p {QUAST_DIR}/{wildcards.genome}
+
+        {QUAST} {input.racon} -o {QUAST_DIR}/{wildcards.genome}/{wildcards.genome}_racon1_quast -t 4 \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Quast_2:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon2.fasta"
+    output:
+        flag=QUAST_DIR + "/{genome}/Quast_racon2_done.flag"
+    log:
+        out=LOGS_DIR + "/quast_racon2_{genome}.log",
+        err=LOGS_DIR + "/quast_racon2_{genome}.err"
+    shell:
+        """
+        mkdir -p {QUAST_DIR}
+        mkdir -p {QUAST_DIR}/{wildcards.genome}
+
+        {QUAST} {input.racon} -o {QUAST_DIR}/{wildcards.genome}/{wildcards.genome}_racon2_quast -t 4 \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Quast_3:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon3.fasta"
+    output:
+        flag=QUAST_DIR + "/{genome}/Quast_racon3_done.flag"
+    log:
+        out=LOGS_DIR + "/quast_racon3_{genome}.log",
+        err=LOGS_DIR + "/quast_racon3_{genome}.err"
+    shell:
+        """
+        mkdir -p {QUAST_DIR}
+        mkdir -p {QUAST_DIR}/{wildcards.genome}
+
+        {QUAST} {input.racon} -o {QUAST_DIR}/{wildcards.genome}/{wildcards.genome}_racon3_quast -t 4 \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Quast_4:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon4.fasta"
+    output:
+        flag=QUAST_DIR + "/{genome}/Quast_racon4_done.flag"
+    log:
+        out=LOGS_DIR + "/quast_racon4_{genome}.log",
+        err=LOGS_DIR + "/quast_racon4_{genome}.err"
+    shell:
+        """
+        mkdir -p {QUAST_DIR}
+        mkdir -p {QUAST_DIR}/{wildcards.genome}
+
+        {QUAST} {input.racon} -o {QUAST_DIR}/{wildcards.genome}/{wildcards.genome}_racon4_quast -t 4 \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+        
+
+rule Quast_assembly:
+    input:
+        assembly = FLYE_DIR + "/{genome}/assembly.fasta"
+    output:
+        flag=QUAST_DIR + "/{genome}/Quast_assembly_done.flag"
+    log:
+        out=LOGS_DIR + "/quast_assembly_{genome}.log",
+        err=LOGS_DIR + "/quast_assembly_{genome}.err"
+    shell:
+        """
+        mkdir -p {QUAST_DIR}
+        mkdir -p {QUAST_DIR}/{wildcards.genome}
+
+        {QUAST} {input.assembly} -o {QUAST_DIR}/{wildcards.genome}/{wildcards.genome}_assembly_quast -t 4 \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Quast_currated:
+    input:
+        purge = PURGE_DIR + "/{genome}/{genome}_curated.fasta"
+    output:
+        flag=QUAST_DIR + "/{genome}/Quast_curated_done.flag"
+    log:
+        out=LOGS_DIR + "/quast_curated_{genome}.log",
+        err=LOGS_DIR + "/quast_curated_{genome}.err"
+    shell:
+        """
+        mkdir -p {QUAST_DIR}
+        mkdir -p {QUAST_DIR}/{wildcards.genome}
+
+        {QUAST} {input.purge} -o {QUAST_DIR}/{wildcards.genome}/{wildcards.genome}_curated_quast -t 4 \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Quast_ragtag:
+    input:
+        ragtag = RAGTAG_DIR + "/{genome}/ragtag.scaffold.fasta"
+    output:
+        flag=QUAST_DIR + "/{genome}/Quast_ragtag_done.flag"
+    log:
+        out=LOGS_DIR + "/quast_ragtag_{genome}.log",
+        err=LOGS_DIR + "/quast_ragtag_{genome}.err"
+    shell:
+        """
+        mkdir -p {QUAST_DIR}
+        mkdir -p {QUAST_DIR}/{wildcards.genome}
+
+        {QUAST} {input.ragtag} -o {QUAST_DIR}/{wildcards.genome}/{wildcards.genome}_ragtag_quast -t 4 \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Busco_1:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon1.fasta"
+    output:
+        flag=BUSCO_DIR + "/{genome}/Busco_racon1_done.flag"
+    log:
+        out=LOGS_DIR + "/Busco_racon1_{genome}.log",
+        err=LOGS_DIR + "/Busco_racon1_{genome}.err"
+    shell:
+        """
+        mkdir -p {BUSCO_DIR}
+        mkdir -p {BUSCO_DIR}/{wildcards.genome}
+        mkdir -p {BUSCO_DIR}/download
+
+        {BUSCO} -i {input.racon} \
+        -l arthropoda \
+        --download_path {BUSCO_DIR}/download \
+        --out_path {BUSCO_DIR}/{wildcards.genome} \
+        -o {wildcards.genome}_racon1_busco \
+        -m genome \
+        -c 4 \
+        -f \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Busco_2:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon2.fasta"
+    output:
+        flag=BUSCO_DIR + "/{genome}/Busco_racon2_done.flag"
+    log:
+        out=LOGS_DIR + "/Busco_racon2_{genome}.log",
+        err=LOGS_DIR + "/Busco_racon2_{genome}.err"
+    shell:
+        """
+        mkdir -p {BUSCO_DIR}
+        mkdir -p {BUSCO_DIR}/{wildcards.genome}
+        mkdir -p {BUSCO_DIR}/download
+
+        {BUSCO} -i {input.racon} \
+        -l arthropoda \
+        --download_path {BUSCO_DIR}/download \
+        --out_path {BUSCO_DIR}/{wildcards.genome} \
+        -o {wildcards.genome}_racon2_busco \
+        -m genome \
+        -c 4 \
+        -f \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Busco_3:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon3.fasta"
+    output:
+        flag=BUSCO_DIR + "/{genome}/Busco_racon3_done.flag"
+    log:
+        out=LOGS_DIR + "/Busco_racon3_{genome}.log",
+        err=LOGS_DIR + "/Busco_racon3_{genome}.err"
+    shell:
+        """
+        mkdir -p {BUSCO_DIR}
+        mkdir -p {BUSCO_DIR}/{wildcards.genome}
+        mkdir -p {BUSCO_DIR}/download
+
+        {BUSCO} -i {input.racon} \
+        -l arthropoda \
+        --download_path {BUSCO_DIR}/download \
+        --out_path {BUSCO_DIR}/{wildcards.genome} \
+        -o {wildcards.genome}_racon3_busco \
+        -m genome \
+        -c 4 \
+        -f \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Busco_4:
+    input:
+        racon = RACON_DIR + "/{genome}/{genome}_racon4.fasta"
+    output:
+        flag=BUSCO_DIR + "/{genome}/Busco_racon4_done.flag"
+    log:
+        out=LOGS_DIR + "/Busco_racon4_{genome}.log",
+        err=LOGS_DIR + "/Busco_racon4_{genome}.err"
+    shell:
+        """
+        mkdir -p {BUSCO_DIR}
+        mkdir -p {BUSCO_DIR}/{wildcards.genome}
+        mkdir -p {BUSCO_DIR}/download
+
+        {BUSCO} -i {input.racon} \
+        -l arthropoda \
+        --download_path {BUSCO_DIR}/download \
+        --out_path {BUSCO_DIR}/{wildcards.genome} \
+        -o {wildcards.genome}_racon4_busco \
+        -m genome \
+        -c 4 \
+        -f \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Busco_curated:
+    input:
+        purge = PURGE_DIR + "/{genome}/{genome}_curated.fasta"
+    output:
+        flag=BUSCO_DIR + "/{genome}/Busco_curated_done.flag"
+    log:
+        out=LOGS_DIR + "/Busco_currated_{genome}.log",
+        err=LOGS_DIR + "/Busco_currated_{genome}.err"
+    shell:
+        """
+        mkdir -p {BUSCO_DIR}
+        mkdir -p {BUSCO_DIR}/{wildcards.genome}
+        mkdir -p {BUSCO_DIR}/download
+
+        {BUSCO} -i {input.purge} \
+        -l arthropoda \
+        --download_path {BUSCO_DIR}/download \
+        --out_path {BUSCO_DIR}/{wildcards.genome} \
+        -o {wildcards.genome}_currated_busco \
+        -m genome \
+        -c 4 \
+        -f \
+        > {log.out} 2> {log.err}
+
+        touch {output.flag}
+        """
+
+
+rule Nanoplot:
+    input:
+        fastq = READS + "/{genome}.fastq.gz"
+    output:
+        flag=NANOPLOT_DIR + "/{genome}/nanoplot_done.flag" 
+    log:
+        out=LOGS_DIR + "/Nanoplot_{genome}.log",
+        err=LOGS_DIR + "/Nanoplot_{genome}.err"
+    shell:
+        """
+        mkdir -p {NANOPLOT_DIR}
+        mkdir -p {NANOPLOT_DIR}/{wildcards.genome}
+    
+        {NANOPLOT} --verbose --raw --loglength -p "{wildcards.genome}" \
+        --fastq "{input.fastq}" -o "{NANOPLOT_DIR}/{wildcards.genome}" \
+        > {log.out} 2> {log.err}
+    
+        touch {output.flag}
+        """
+
+
+rule Minimap:
+    input:
+        reads = READS + "/{genome}.fastq.gz"
+    output:
+        minimap=MINIMAP_DIR + "/{genome}/{genome}.sam",
+        samtools=MINIMAP_DIR + "/{genome}/{genome}.bam"  
+    shell:
+        """
+        mkdir -p {MINIMAP_DIR}
+        mkdir -p {MINIMAP_DIR}/{wildcards.genome}
+
+        {MINIMAP2} -ax map-ont {REFGENOME_DIR}/{REFGENOME} {input.reads} > {output.minimap}
+
+        {SAMTOOLS} view -b {output.minimap} > {output.samtools}
+        """
+
+
+rule samtools:
+    input:
+        samtools=MINIMAP_DIR + "/{genome}/{genome}.bam"
+    output:
+        sort=MINIMAP_DIR + "/{genome}/{genome}_sorted.bam",
+        depth=MINIMAP_DIR + "/{genome}/{genome}_coverage.txt"  
+    shell:
+        """
+        {SAMTOOLS} sort {input.samtools} > {output.sort}
+
+        {SAMTOOLS} depth -a {output.sort} > {output.depth}
+        """        
+
+
+rule Cramino:
+    input:
+        sort=MINIMAP_DIR + "/{genome}/{genome}.bam"
+    output:
+        hist=CRAMINO_DIR + "/{genome}/{genome}_hist.txt",
+    shell:
+        """
+        mkdir -p {CRAMINO_DIR}
+        mkdir -p {CRAMINO_DIR}/{wildcards.genome}
+
+        {CRAMINO}  --hist --ubam {input.sort} > {output.hist}
+        """
+
+
+rule Cramino_mapped:
+    input:
+        sort=MINIMAP_DIR + "/{genome}/{genome}_sorted.bam"
+    output:
+        hist=CRAMINO_DIR + "/{genome}/{genome}_sorted_hist.txt",
+    shell:
+        """
+        mkdir -p {CRAMINO_DIR}
+        mkdir -p {CRAMINO_DIR}/{wildcards.genome}
+
+        {CRAMINO}  --hist --ubam {input.sort} > {output.hist}
+        """        
+
+        
+rule Rasusa:
+    input:
+        reads = READS + "/{genome}.fastq.gz",
+        ref = REFGENOME_DIR + "/" + REFGENOME
+    output:
+        flag = RASUSA_DIR + "/{genome}/rasusa_done.flag"
+    shell:
+        """
+        mkdir -p {RASUSA_DIR}/{wildcards.genome}
+
+        fai_file="{input.ref}.fai"
+        output_dir="{RASUSA_DIR}/{wildcards.genome}"
+        step=10
+        start=5
+
+        # 0. Vérifie que le fichier .fai existe, sinon le crée
+        if [ ! -f "$fai_file" ]; then
+            echo "[INFO] Index FASTA (.fai) manquant. Création avec samtools..."
+            samtools faidx "{input.ref}"
+            if [ $? -ne 0 ]; then
+                echo "[ERREUR] Échec de la création du fichier .fai"
+                exit 1
+            fi
+        else
+            echo "[INFO] Fichier .fai trouvé : $fai_file"
+        fi
+
+        # 1. Calcul du nombre total de bases
+        echo "[INFO] Calcul de la taille totale des reads..."
+        total_bases=$(zcat "{input.reads}" | awk 'NR % 4 == 2 {{ total += length($0) }} END {{ print total }}')
+        echo "[DEBUG] Total bases dans les reads : $total_bases"
+        
+        # 2. Calcul de la taille du génome à partir du fichier .fai
+        echo "[INFO] Calcul de la taille du génome à partir du fichier .fai..."
+        genome_size=$(awk '{{sum += $2}} END {{print sum}}' "$fai_file")
+        echo "[DEBUG] Taille totale du génome (somme des contigs) : $genome_size"
+        
+        #3. Couverture maximale possible
+        max_coverage=$(awk -v t="$total_bases" -v g="$genome_size" 'BEGIN {{ if (g==0) exit 1; printf "%.0f", t/g }}') || {{
+        echo "[ERREUR] Division par zéro : la taille du génome est nulle ou invalide."
+        exit 1
+        }}
+        echo "[INFO] Couverture maximale atteignable : ${{max_coverage}}x"
+
+        # 4. Boucle 5, 15, 25, ..., jusqu'à couverture max
+            for coverage in $(seq $start $step $max_coverage); do
+                output_file="$output_dir/S100_Wb_merged_${{coverage}}x.fastq.gz"
+                echo "[INFO] Sous-échantillonnage à ${{coverage}}x"
+                rasusa reads \
+                    -o "$output_file" \
+                    -g "$fai_file" \
+                    -c "$coverage" \
+                    -O g \
+                    "/home/data/alarue/merge_sequencing/Wb+_data/S100_Wb_merged.fastq.gz"
+            done
+
+        echo "[✔] Terminé."
+        touch {output.flag}
+        """
+
+
+import os
+from ruamel.yaml import YAML
+
+rule config_tremolo:
+    input:
+        yaml = DATA + "/config.yaml",
+        assembly = FLYE_DIR + "/{genome}/assembly.fasta", 
+        rasusa = RASUSA_DIR + "/{genome}/{genome}_35x.fastq.gz"     
+    output:
+        dir = TREMOLO_DIR + "/{genome}/config.yaml"
+    run:
+        yaml = YAML()
+        yaml.preserve_quotes = True  # garde les guillemets
+        yaml.indent(mapping=4, sequence=6, offset=4)
+
+        # Charger le fichier original
+        with open(input.yaml) as f:
+            conf = yaml.load(f)
+
+        # Substitution récursive
+        def substitute_vars(d):
+            if isinstance(d, dict):
+                return {k: substitute_vars(v) for k, v in d.items()}
+            elif isinstance(d, list):
+                return [substitute_vars(v) for v in d]
+            elif isinstance(d, str):
+                return (d.replace("$genome", str(input.assembly))
+                         .replace("$sample", str(input.rasusa))
+                         .replace("$work", os.path.dirname(str(output.dir))))
+            else:
+                return d
+
+        resolved = substitute_vars(conf)
+
+        # Création du dossier si besoin
+        os.makedirs(os.path.dirname(output.dir), exist_ok=True)
+
+        # Écriture du YAML résolu
+        with open(output.dir, "w") as out:
+            yaml.dump(resolved, out)
+
+        print(f"[INFO] Fichier de config résolu écrit : {output.dir}")
+
+
+rule run_tremolo:
+    input:
+        yaml = TREMOLO_DIR + "/{genome}/config.yaml"
+    output:
+        flag = TREMOLO_DIR + "/{genome}/Tremolo_done.flag"
+    shell:
+        """
+        singularity run /home/data/fblanchard/tools/TrEMOLO.simg \
+        snakemake --snakefile /home/data/fblanchard/tools/TrEMOLO/run.snk \
+        --configfile {input} || true
+        touch {output}
+    
+        """
+
+
+rule INS_DEL:
+    input:
+        bed = TREMOLO_DIR + "/{genome}/POSITION_TE_OUTSIDER.bed"
+        
+    output:
+        TE_ins = TREMOLO_DIR + "/{genome}/{genome}_INS.bed",
+        TE_del = TREMOLO_DIR + "/{genome}/{genome}_DEL.bed"
+    shell:
+        """
+        awk '$15 == "INS"' {input.bed} > {output.TE_ins}
+        awk '$15 == "DEL"' {input.bed} > {output.TE_del}
+        """
+
+
+
