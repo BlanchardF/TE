@@ -7,12 +7,9 @@
 #Realcommand
 #nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_permutation --cores 16 &> nohup_snakemake_permutation &
 
-
 ############################################
 ##                CONFIG                  ##
 ############################################
-
-# Chemins globaux
 
 Version = "All"
 
@@ -24,70 +21,50 @@ Genome = "/home/data/fblanchard/TE/test_permutation/Data"
 Lignee = f"{Data}/Lignee"
 Region = f"{Data}/Region"
 
-
-
 import os
 
-# Liste des fichiers présents dans le dossier Lignee
-lignee_files = [f for f in os.listdir(Lignee) if os.path.isfile(os.path.join(Lignee, f))]
-
-# Extraire les noms sans extension
-lignee_ids = [os.path.splitext(f)[0] for f in lignee_files]
-
-
-
-
-# Lignée : source des "filtered.bed"
-lignee_ids = [os.path.splitext(f)[0] for f in os.listdir(Lignee) if f.endswith(".bed")]
-
-# Region : fichiers de comparaison
-region_files = [f for f in os.listdir(Region) if f.endswith(".bed")]
-region_ids = [os.path.splitext(f)[0] for f in region_files]
+# Lignées : fichiers BED à permuter
+lignee_ids = [
+    os.path.splitext(f)[0]
+    for f in os.listdir(Lignee)
+    if f.endswith(".bed")
+]
 
 # Paramètre : nombre de permutations
 n_permutations = 1000
 
+# Liste ordonnée des fichiers B (régions de comparaison)
+B_FILES = [
+    "/home/data/alarue/rasusa_35x/TrEMOLO/against_G0/Wb+_data/gencode/promoters.2000_filtered_cleaned_corrected.bed",
+    "/home/data/alarue/rasusa_35x/TrEMOLO/against_G0/Wb+_data/gencode/5UTRs_filtered_cleaned.bed",
+    "/home/data/alarue/rasusa_35x/TrEMOLO/against_G0/Wb+_data/gencode/3UTRs_filtered_cleaned.bed",
+    "/home/data/alarue/rasusa_35x/TrEMOLO/against_G0/Wb+_data/gencode/exons_filtered_cleaned.bed",
+    "/home/data/alarue/rasusa_35x/TrEMOLO/against_G0/Wb+_data/gencode/introns_filtered_cleaned.bed"
+]
+B_NAMES = [os.path.splitext(os.path.basename(f))[0] for f in B_FILES]
 
 
-
-from itertools import product
+############################################
+##                RULES                   ##
+############################################
 
 rule all:
     input:
-        expand(f"{Results}/{{sample}}/missing_contigs.txt", sample=lignee_ids),
-        expand(f"{Results}/{{sample}}/filtered.bed", sample=lignee_ids),
-        expand(f"{Results}/{{a}}/vs_{{b}}/permutations.txt", a=lignee_ids, b=region_ids),
-        expand(f"{Results}/{{a}}/vs_{{b}}/real_intersect.txt", a=lignee_ids, b=region_ids),
-        expand(f"{Results}/{{a}}/vs_{{b}}/summary.txt", a=lignee_ids, b=region_ids)  
-
-
-
-
-
-
+        expand(f"{Results}/{{sample}}/ordered_intersections/summary.txt", sample=lignee_ids)
 
 
 rule get_missing_contigs:
     input:
         bed = f"{Lignee}/{{sample}}.bed",
-        ref = f"{Genome}/G0_Wb_merged.genome"
+        ref = f"{Genome}/G0_Wb_3seq_rmdup_ragtag.scaffold.genome"
     output:
         missing = f"{Results}/{{sample}}/missing_contigs.txt",
     shell:
         """
-
         mkdir -p $(dirname {output.missing})
-
-        # Extraire les contigs du fichier BED (col 1)
         cut -f1 {input.bed} | sort | uniq > {output.missing}.tmp_bed_contigs
-
-        # Extraire les contigs de référence (col 1 aussi)
         cut -f1 {input.ref} | sort | uniq > {output.missing}.tmp_ref_contigs
-
-        # Trouver les contigs présents dans le BED mais absents de la référence
         comm -23 {output.missing}.tmp_bed_contigs {output.missing}.tmp_ref_contigs > {output.missing}
-
-        # Nettoyage
         rm {output.missing}.tmp_*
         """
 
@@ -100,78 +77,122 @@ rule filter_bed_on_contigs:
         filtered = f"{Results}/{{sample}}/filtered.bed"
     shell:
         """
-        if [ -s {input[1]} ]; then
-            grep -v -F -f {input[1]} {input[0]} | cut -f1-6 > {output}
+        if [ -s {input.missing} ]; then
+            grep -v -F -f {input.missing} {input.bed} | cut -f1-6 > {output.filtered}
         else
-            cut -f1-6 {input[0]} > {output}
+            cut -f1-6 {input.bed} > {output.filtered}
         fi
         """
 
 
-
-rule permutation_test:
+rule generate_shuffles:
     input:
         filtered = f"{Results}/{{a}}/filtered.bed",
-        other = f"{Region}/{{b}}.bed",
-        genome = f"{Genome}/G0_Wb_merged.genome"
+        genome = f"{Genome}/G0_Wb_3seq_rmdup_ragtag.scaffold.genome"
     output:
-        result = f"{Results}/{{a}}/vs_{{b}}/permutations.txt"
+        shuffled = f"{Results}/{{a}}/shuffles.bed"
     params:
         n = n_permutations
     shell:
         """
-        mkdir -p $(dirname {output.result})
-
-        > {output.result}  # Vider/fichier vierge au début
-
+        mkdir -p $(dirname {output.shuffled})
+        > {output.shuffled}
         for i in $(seq 1 {params.n}); do
-            bedtools shuffle -i {input.filtered} -g {input.genome} -noOverlapping -seed $i -chrom > tmp_{wildcards.a}_{wildcards.b}_shuffled.bed
-            bedtools intersect -a tmp_{wildcards.a}_{wildcards.b}_shuffled.bed -b {input.other} -u | wc -l >> {output.result}
-            rm tmp_{wildcards.a}_{wildcards.b}_shuffled.bed
+            bedtools shuffle -i {input.filtered} -g {input.genome} -noOverlapping -seed $i  \
+            | awk -v p=$i '{{print $0"\t"p}}' >> {output.shuffled}
         done
+        #-chrom
         """
 
 
-
-rule real_intersect:
+rule ordered_intersect:
     input:
-        filtered = f"{Results}/{{a}}/filtered.bed",
-        other = f"{Region}/{{b}}.bed"
+        shuffled = f"{Results}/{{a}}/shuffles.bed",
+        filtered = f"{Results}/{{a}}/filtered.bed"
     output:
-        result = f"{Results}/{{a}}/vs_{{b}}/real_intersect.txt"
-    shell:
-        """
-        mkdir -p $(dirname {output.result})
-
-        bedtools intersect -a {input.filtered} -b {input.other} -u | wc -l > {output.result}
-        #-f 0.0005
-        """
-
-
-
-
-
-rule summarize_permutation:
-    input:
-        permutations = f"{Results}/{{a}}/vs_{{b}}/permutations.txt",
-        real = f"{Results}/{{a}}/vs_{{b}}/real_intersect.txt"
-    output:
-        summary = f"{Results}/{{a}}/vs_{{b}}/summary.txt"
+        summary = f"{Results}/{{a}}/ordered_intersections/summary.txt"
     run:
-        # Lire les valeurs réelles et permutations
-        with open(input.real) as f:
-            real_value = int(f.read().strip())
-        with open(input.permutations) as f:
-            perm_values = [int(line.strip()) for line in f]
+        import os
+        import subprocess
+        import pandas as pd
+        import numpy as np
 
-        # Calcul p-value (exemple : proportion de permutations >= valeur réelle)
-        pval = sum(1 for v in perm_values if v >= real_value) / len(perm_values)
+        outdir = os.path.dirname(output.summary)
+        os.makedirs(outdir, exist_ok=True)
 
-        # Écrire résumé
+        # --- 1. Charger permutations ---
+        df = pd.read_csv(input.shuffled, sep="\t", header=None,
+                         names=['chrom','start','end','name','score','strand','perm'])
+        current_df = df.copy()
+
+        perm_dists = {}   # distribution complète des intersections
+        mean_counts = {}  # moyennes des permutations
+
+        for bfile, bname in zip(B_FILES, B_NAMES):
+            out_inter = os.path.join(outdir, f"{wildcards.a}_{bname}_intersected_perm.bed")
+            out_sub = os.path.join(outdir, f"{wildcards.a}_{bname}_remaining_perm.bed")
+
+            tmp_current = os.path.join(outdir, "tmp_current_perm.bed")
+            current_df.to_csv(tmp_current, sep="\t", header=False, index=False)
+
+            subprocess.check_call(f"bedtools intersect -wa -u -a {tmp_current} -b {bfile} > {out_inter}", shell=True)
+            subprocess.check_call(f"bedtools intersect -v -a {tmp_current} -b {bfile} > {out_sub}", shell=True)
+
+            # Charger intersections avec colonnes (inclut 'perm')
+            df_inter = pd.read_csv(out_inter, sep="\t", header=None)
+
+            if not df_inter.empty:
+                # nb d’intersections par permutation
+                counts = df_inter[6].value_counts().sort_index()
+                # compléter pour toutes les permutations
+                counts = counts.reindex(range(1, n_permutations+1), fill_value=0)
+            else:
+                counts = pd.Series(0, index=range(1, n_permutations+1))
+
+            perm_dists[bname] = counts.values
+            mean_counts[f"{bname}_mean_per_perm"] = counts.mean()
+
+            current_df = pd.read_csv(out_sub, sep="\t", header=None)
+            os.remove(tmp_current)
+
+        # --- 2. VRAI BED ---
+        true_counts = {}
+        pvalues = {}
+        current_bed = input.filtered
+
+        for bfile, bname in zip(B_FILES, B_NAMES):
+            out_inter_true = os.path.join(outdir, f"{wildcards.a}_{bname}_intersected_true.bed")
+            out_sub_true = os.path.join(outdir, f"{wildcards.a}_{bname}_remaining_true.bed")
+
+            subprocess.check_call(f"bedtools intersect -wa -u -a {current_bed} -b {bfile} > {out_inter_true}", shell=True)
+            subprocess.check_call(f"bedtools intersect -v -a {current_bed} -b {bfile} > {out_sub_true}", shell=True)
+
+            # Compter intersections réelles
+            with open(out_inter_true) as f:
+                n_lines = sum(1 for _ in f)
+
+            true_counts[f"{bname}_true_count"] = n_lines
+
+            # Comparer à la distribution permutée
+            dist = perm_dists[bname]
+            greater_equal = np.sum(dist >= n_lines)
+            less_equal = np.sum(dist <= n_lines)
+
+            p_over = (greater_equal + 1) / (n_permutations + 1)
+            p_under = (less_equal + 1) / (n_permutations + 1)
+            p_two = 2 * min(p_over, p_under)
+
+            pvalues[f"{bname}_pvalue"] = min(1.0, p_two)  # clamp à 1.0
+
+            current_bed = out_sub_true
+
+        # --- 3. ÉCRITURE DU SUMMARY ---
         with open(output.summary, "w") as f:
-            f.write(f"Real_intersect\t{real_value}\n")
-            f.write(f"Mean_permutation\t{sum(perm_values)/len(perm_values):.2f}\n")
-            f.write(f"P_value\t{pval:.4f}\n")
+            for bname in B_NAMES:
+                f.write(f"{bname}\tmean_perm\t{mean_counts[f'{bname}_mean_per_perm']:.2f}\n")
+                f.write(f"{bname}\ttrue_count\t{true_counts[f'{bname}_true_count']}\n")
+                f.write(f"{bname}\tpvalue\t{pvalues[f'{bname}_pvalue']:.4f}\n")
 
 
-# for file in All/*/*/summary.txt; do   echo "=== $file ===";   cat "$file";   echo ""; done > All_result.txt 
+
+# for file in ../Results/All/*/*/summary.txt; do   echo "=== $file ===";   cat "$file";   echo ""; done > ../Results/All/All_result_3.txt 
