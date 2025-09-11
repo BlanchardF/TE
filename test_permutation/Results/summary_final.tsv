@@ -1,0 +1,31 @@
+region	Frequencies	S10	S31	S73	S100
+Promoter (2000)	all	77	94	125	120
+5UTR	all	0	1	0	0
+3UTR	all	5	7	6	9
+Intron	all	99	107	141	150
+Exon	all	3	2	4	4
+Promoter (2000)	80	2	6	1	2
+5UTR	80	0	0	0	0
+3UTR	80	1	2	0	0
+Intron	80	7	20	6	5
+Exon	80	0	0	0	0
+Promoter (2000)	60-80	3	2	4	0
+5UTR	60-80	0	0	0	0
+3UTR	60-80	0	0	0	0
+Intron	60-80	3	3	4	6
+Exon	60-80	0	0	0	0
+Promoter (2000)	40-60	4	4	2	4
+5UTR	40-60	0	0	0	0
+3UTR	40-60	1	0	0	0
+Intron	40-60	11	3	9	3
+Exon	40-60	0	0	0	0
+Promoter (2000)	20-40	5	14	8	13
+5UTR	20-40	0	0	0	0
+3UTR	20-40	1	2	0	4
+Intron	20-40	10	12	19	24
+Exon	20-40	0	0	0	0
+Promoter (2000)	-20	63	68	110	101
+5UTR	-20	0	1	0	0
+3UTR	-20	2	3	6	5
+Intron	-20	68	69	103	112
+Exon	-20	3	2	4	4
