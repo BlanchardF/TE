@@ -1,0 +1,153 @@
+#Dry run
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_structural_variant -n &> nohup_snakemake_structural_variant &
+
+#Unlock
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_structural_variant --unlock  &> nohup_snakemake_structural_variant &
+
+#Realcommand
+#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_structural_variant --cores 16 &> nohup_snakemake_structural_variant &
+
+############################################
+##                CONFIG                  ##
+############################################
+
+
+
+
+# Chemins globaux
+WORKDIR = "/home/data/fblanchard/TE/structural_variant"
+LIGNEE = "S31_Wb_noTE_nolow_SV"
+
+DATA = f"{WORKDIR}/Data"
+G0 = f"{DATA}/G0_Wb_3seq_rmdup_ragtag.scaffold.fasta"
+READ = f"{DATA}/G0_Wb_merged.fastq.gz"
+RESULTS = f"{WORKDIR}/Results/{LIGNEE}"
+LOGS_DIR = f"{WORKDIR}/logs"
+
+VG = "/home/data/fblanchard/miniconda3/bin/vg"
+
+rule all:
+    input:
+        [
+            f"{RESULTS}/{LIGNEE}.vg",          # Résultat de VG_construct
+            f"{RESULTS}/{LIGNEE}.gfa",         # Résultat de VG_view
+            f"{RESULTS}/auto_index_done.flag", # Résultat de VG_auto_index
+            f"{RESULTS}/{LIGNEE}.xg",           # Résultat de VG_index
+            f"{RESULTS}/{LIGNEE}.mp.gam"        # Résultat de VG_mpmap
+        ]
+
+
+rule VG_construct:
+    input:
+        lignee = f"{DATA}/{LIGNEE}.vcf.gz",
+        G0 = f"{G0}"
+    output:
+        vg = f"{RESULTS}/{LIGNEE}.vg"
+    log:
+        out = f"{LOGS_DIR}/vg_construct_{LIGNEE}.out",
+        err = f"{LOGS_DIR}/vg_construct_{LIGNEE}.err"
+    shell:
+        """
+        mkdir -p {RESULTS}/
+        {VG} construct -a -r {input.G0} -v {input.lignee} -m 1024 > {output.vg}
+        """
+
+rule VG_view:
+    input:
+        vg = f"{RESULTS}/{LIGNEE}.vg"
+    output:
+        gfa = f"{RESULTS}/{LIGNEE}.gfa"
+    log:
+        out = f"{LOGS_DIR}/VG_view_{LIGNEE}.out",
+        err = f"{LOGS_DIR}/VG_view_{LIGNEE}.err"
+    shell:
+        """
+        {VG} view -V {input.vg} -g > {output.gfa}
+        """
+
+rule VG_auto_index:
+    input:
+        gfa = f"{RESULTS}/{LIGNEE}.gfa"
+    output:
+        flag = f"{RESULTS}/auto_index_done.flag"
+    log:
+        out = f"{LOGS_DIR}/VG_auto_index_{LIGNEE}.out",
+        err = f"{LOGS_DIR}/VG_auto_index_{LIGNEE}.err"
+    shell:
+        """
+        {VG} autoindex --workflow giraffe -g {input.gfa} -p {RESULTS}/index
+        touch {output.flag}
+        """
+
+
+rule VG_index:
+    input:
+        flag = f"{RESULTS}/auto_index_done.flag",
+        vg = f"{RESULTS}/{LIGNEE}.vg"
+    output:
+        xg = f"{RESULTS}/{LIGNEE}.xg"
+    log:
+        out = f"{LOGS_DIR}/VG_index_{LIGNEE}.out",
+        err = f"{LOGS_DIR}/VG_index_{LIGNEE}.err"
+    shell:
+        """
+        mkdir -p {RESULTS}/tmp
+        export TMPDIR={RESULTS}/tmp
+        {VG} index -g {RESULTS}/index.gcsa -k 16 {input.vg} -x {output.xg}
+        """
+
+
+rule VG_mpmap:
+    input:
+        xg = f"{RESULTS}/{LIGNEE}.xg",
+        Read = f"{READ}"
+       
+    output:
+        mpgam = f"{RESULTS}/{LIGNEE}.mp.gam"
+    log:
+        out = f"{LOGS_DIR}/VG_mpmap_{LIGNEE}.out",
+        err = f"{LOGS_DIR}/VG_mpmap_{LIGNEE}.err"
+    shell:
+        """
+        {VG} mpmap -x {input.xg} -g {RESULTS}/index.gcsa -d {RESULTS}/index.dist -f {input.Read} -t 8 > {output.mpgam}
+        """
+
+
+
+
+
+
+
+
+
+
+
+#vg view -K -G sample.mp.gam > sample.gam
+
+
+#vg index -x graph.xg test.vg
+
+
+#vg pack -x test/graph.xg -g test/sample.gam -o test/sample.pack -Q 0
+
+
+
+
+
+#GraphAligner -t ${graph_align_threads} -x vg -g index/index.vg -f ${sample_reads} -a ${sample_name}.gam
+#/home/data/fblanchard/miniconda3/envs/graphaligner_env/bin/GraphAligner -t 8 -x vg -g test/test.vg -f G0_Wb_merged.fastq.gz -a test/graph.gaf
+
+
+
+#vg snarls -x test/graph.xg -o test/index.pb
+
+
+#vg call -a -r test/index.pb -s S100_Wb_noTE_nolow_SV -k test/sample.pack test/graph.xg > S100_Wb_noTE_nolow_SV.vcf
+
+
+
+
+
+
+
+#/home/data/fblanchard/miniconda3/envs/graphaligner_env/bin/GraphAligner \ -t 8 \-x vg \-g test/test.vg \f G0_Wb_merged.fastq.gz \--alignments-out test/graph_alignments.gaf
