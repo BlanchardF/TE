@@ -1,115 +1,221 @@
-#Dry run
-#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_structural_variant -n &> nohup_snakemake_structural_variant &
+####Dry RUN command :
+#nohup snakemake -j 10 -s snakemake_structural_variant -n --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --exclude=pbil-deb[14-27] " &> nohup_snakemake_structural_variant.out &
 
-#Unlock
-#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_structural_variant --unlock  &> nohup_snakemake_structural_variant &
+####Unlock command :
+#nohup snakemake -j 10 -s snakemake_structural_variant --unlock --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --exclude=pbil-deb[14-27] "  &> nohup_snakemake_structural_variant.out &
 
-#Realcommand
-#nohup /home/data/fblanchard/miniconda3/envs/snakemake/bin/snakemake -s snakemake_structural_variant --cores 16 &> nohup_snakemake_structural_variant &
+####Real command :
+#nohup snakemake -j 10 -s snakemake_structural_variant --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} " &> nohup_snakemake_structural_variant.out &
+
 
 ############################################
 ##                CONFIG                  ##
 ############################################
 
-
-
-
-# Chemins globaux
-WORKDIR = "/home/data/fblanchard/TE/structural_variant"
-LIGNEE = "S31_Wb_noTE_nolow_SV"
-
+WORKDIR = "/beegfs/data/fblanchard/TE/structural_variant"
 DATA = f"{WORKDIR}/Data"
+
+
+LIGNEE = "S31_Wb_noTE_nolow_SV"
+VCF = f"{DATA}/S31_Wb_noTE_nolow_SV.vcf.gz"  
+READ = f"{DATA}/Reads/S31_Wb_merged.fastq.gz"
+
+
 G0 = f"{DATA}/G0_Wb_3seq_rmdup_ragtag.scaffold.fasta"
-READ = f"{DATA}/G0_Wb_merged.fastq.gz"
 RESULTS = f"{WORKDIR}/Results/{LIGNEE}"
 LOGS_DIR = f"{WORKDIR}/logs"
 
-VG = "/home/data/fblanchard/miniconda3/bin/vg"
+VG = "/beegfs/home/fblanchard/tools/vg"
+GRAPHALIGNER = "/beegfs/home/fblanchard/miniconda3/bin/GraphAligner"
+
+############################################
+##                RULE ALL                ##
+############################################
 
 rule all:
     input:
-        [
-            f"{RESULTS}/{LIGNEE}.vg",          # Résultat de VG_construct
-            f"{RESULTS}/{LIGNEE}.gfa",         # Résultat de VG_view
-            f"{RESULTS}/auto_index_done.flag", # Résultat de VG_auto_index
-            f"{RESULTS}/{LIGNEE}.xg",           # Résultat de VG_index
-            f"{RESULTS}/{LIGNEE}.mp.gam"        # Résultat de VG_mpmap
-        ]
+        f"{RESULTS}/graphaligner/index/index.vg",
+        f"{RESULTS}/graphaligner/index/index.pb",
+        f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.gam",
+        f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.pack",
+        f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.vcf.gz",
+        f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.vcf.gz.tbi",
+        f"{RESULTS}/graphaligner/allelic_frequencies.tsv"
+
+############################################
+##        RULES: INDEX & SNARLS          ##
+############################################
 
 
-rule VG_construct:
+rule vg_construct_graphaligner:
+    params:
+        name="vg_construct_graphaligner",
+        out=f"{LOGS_DIR}/vg_construct_graphaligner.out",
+        err=f"{LOGS_DIR}/vg_construct_graphaligner.error",
+        partition="normal",
+        threads="16",
+        time="12:00:00",
+        mem="32G"
     input:
-        lignee = f"{DATA}/{LIGNEE}.vcf.gz",
-        G0 = f"{G0}"
+        fasta=G0,
+        vcf=VCF
     output:
-        vg = f"{RESULTS}/{LIGNEE}.vg"
-    log:
-        out = f"{LOGS_DIR}/vg_construct_{LIGNEE}.out",
-        err = f"{LOGS_DIR}/vg_construct_{LIGNEE}.err"
+        vg=f"{RESULTS}/graphaligner/index/index.vg"
     shell:
         """
-        mkdir -p {RESULTS}/
-        {VG} construct -a -r {input.G0} -v {input.lignee} -m 1024 > {output.vg}
+        mkdir -p {RESULTS}/graphaligner/index
+        export TMPDIR=$PWD
+        vg construct -a -r {input.fasta} -v {input.vcf} -m 1024 > {output.vg} 2> {params.err}
         """
 
-rule VG_view:
+
+
+rule vg_snarls_graphaligner:
+    params:
+        name="vg_snarls_graphaligner",
+        out=f"{LOGS_DIR}/vg_snarls_graphaligner.out",
+        err=f"{LOGS_DIR}/vg_snarls_graphaligner.error",
+        partition="normal",
+        threads="4",
+        time="1:00:00",
+        mem="8G"
     input:
-        vg = f"{RESULTS}/{LIGNEE}.vg"
+        vg=f"{RESULTS}/graphaligner/index/index.vg"
     output:
-        gfa = f"{RESULTS}/{LIGNEE}.gfa"
-    log:
-        out = f"{LOGS_DIR}/VG_view_{LIGNEE}.out",
-        err = f"{LOGS_DIR}/VG_view_{LIGNEE}.err"
+        pb=f"{RESULTS}/graphaligner/index/index.pb"
     shell:
         """
-        {VG} view -V {input.vg} -g > {output.gfa}
+        {VG} snarls {input.vg} > {output.pb} 2> {params.err}
         """
 
-rule VG_auto_index:
+############################################
+##        RULES: ALIGNMENTS             ##
+############################################
+
+
+
+rule graphaligner_align:
+    params:
+        name="graphaligner_align",
+        out=f"{LOGS_DIR}/graphaligner_align.out",
+        err=f"{LOGS_DIR}/graphaligner_align.error",
+        partition="normal",
+        threads="8",
+        time="6:00:00",
+        mem="32G"
     input:
-        gfa = f"{RESULTS}/{LIGNEE}.gfa"
+        reads=READ,
+        index=f"{RESULTS}/graphaligner/index/index.vg"
     output:
-        flag = f"{RESULTS}/auto_index_done.flag"
-    log:
-        out = f"{LOGS_DIR}/VG_auto_index_{LIGNEE}.out",
-        err = f"{LOGS_DIR}/VG_auto_index_{LIGNEE}.err"
+        gam=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.gam"
     shell:
         """
-        {VG} autoindex --workflow giraffe -g {input.gfa} -p {RESULTS}/index
-        touch {output.flag}
+        {GRAPHALIGNER} -t {params.threads} -x vg \
+            -g {input.index} -f {input.reads} \
+            -a {output.gam} > {params.out} 2> {params.err}
         """
 
+############################################
+##        RULES: PACK                    ##
+############################################
 
-rule VG_index:
+rule vg_pack_graphaligner:
+    params:
+        name="vg_pack_graphaligner",
+        out=f"{LOGS_DIR}/vg_pack_graphaligner.out",
+        err=f"{LOGS_DIR}/vg_pack_graphaligner.error",
+        partition="normal",
+        threads="32",
+        time="9:00:00",
+        mem="32G"
     input:
-        flag = f"{RESULTS}/auto_index_done.flag",
-        vg = f"{RESULTS}/{LIGNEE}.vg"
+        vg=f"{RESULTS}/graphaligner/index/index.vg",
+        gam=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.gam"
     output:
-        xg = f"{RESULTS}/{LIGNEE}.xg"
-    log:
-        out = f"{LOGS_DIR}/VG_index_{LIGNEE}.out",
-        err = f"{LOGS_DIR}/VG_index_{LIGNEE}.err"
+        pack=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.pack"
     shell:
         """
-        mkdir -p {RESULTS}/tmp
-        export TMPDIR={RESULTS}/tmp
-        {VG} index -g {RESULTS}/index.gcsa -k 16 {input.vg} -x {output.xg}
+        {VG} pack -x {input.vg} -g {input.gam} -o {output.pack} -Q 0 \
+            > {params.out} 2> {params.err}
         """
 
+############################################
+##        RULES: CALL                    ##
+############################################
 
-rule VG_mpmap:
+
+
+rule vg_call_graphaligner:
+    params:
+        name="vg_call_graphaligner",
+        out=f"{LOGS_DIR}/vg_call_graphaligner.out",
+        err=f"{LOGS_DIR}/vg_call_graphaligner.error",
+        partition="normal",
+        threads="32",
+        time="24:00:00",
+        mem="32G"
     input:
-        xg = f"{RESULTS}/{LIGNEE}.xg",
-        Read = f"{READ}"
-       
+        pack=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.pack",
+        gam=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.gam",
+        index=f"{RESULTS}/graphaligner/index/index.vg",
+        snarls=f"{RESULTS}/graphaligner/index/index.pb"
     output:
-        mpgam = f"{RESULTS}/{LIGNEE}.mp.gam"
-    log:
-        out = f"{LOGS_DIR}/VG_mpmap_{LIGNEE}.out",
-        err = f"{LOGS_DIR}/VG_mpmap_{LIGNEE}.err"
+        vcf=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.vcf",
+        vcf_gz=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.vcf.gz",
+        vcf_tbi=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.vcf.gz.tbi"
     shell:
         """
-        {VG} mpmap -x {input.xg} -g {RESULTS}/index.gcsa -d {RESULTS}/index.dist -f {input.Read} -t 8 > {output.mpgam}
+        {VG} call -a -m 1 -r {input.snarls} -s {LIGNEE} -k {input.pack} {input.index} \
+            > {output.vcf} 2> {params.err}
+        bgzip -c {output.vcf} > {output.vcf_gz}
+        tabix -p vcf {output.vcf_gz}
+        """
+
+
+
+
+############################################
+##        RULE: ALLELIC FREQUENCIES       ##
+############################################
+
+rule allelic_freq_graphaligner:
+    params:
+        name="allelic_freq_graphaligner",
+        out=f"{LOGS_DIR}/allelic_freq_graphaligner.out",
+        err=f"{LOGS_DIR}/allelic_freq_graphaligner.error",
+        partition="normal",
+        threads="4",
+        time="1:00:00",
+        mem="8G"
+    input:
+        vcf=f"{RESULTS}/graphaligner/{LIGNEE}_graphaligner.vcf.gz"
+    output:
+        freqs=f"{RESULTS}/graphaligner/allelic_frequencies.tsv"
+    shell:
+        """
+        /beegfs/home/fblanchard/miniconda3/bin/R -e '
+        library(vcfR);
+        library(dplyr);
+        vcf <- read.vcfR("{input.vcf}");
+        gt <- extract.gt(vcf, element="AD", as.numeric=FALSE);
+        dp <- extract.gt(vcf, element="DP", as.numeric=TRUE);
+        freqs <- apply(gt, 2, function(x) {{
+          sapply(x, function(ad) {{
+            if (is.na(ad)) return(NA);
+            parts <- as.numeric(unlist(strsplit(ad, ",")));
+            if (length(parts) < 2) return(NA);
+            total <- sum(parts);
+            if (total == 0) return(0);
+            return(parts[2] / total);
+          }})
+        }});
+        freqs_df <- as.data.frame(freqs);
+        freqs_df$CHROM <- vcf@fix[,1];
+        freqs_df$POS <- vcf@fix[,2];
+        freqs_df$ID <- vcf@fix[,3];
+        freqs_df <- freqs_df %>% relocate(CHROM, POS, ID);
+        write.table(freqs_df, "{output.freqs}", sep="\\t", quote=FALSE, row.names=FALSE);
+        ' > {params.out} 2> {params.err}
         """
 
 
@@ -122,32 +228,6 @@ rule VG_mpmap:
 
 
 
-#vg view -K -G sample.mp.gam > sample.gam
-
-
-#vg index -x graph.xg test.vg
-
-
-#vg pack -x test/graph.xg -g test/sample.gam -o test/sample.pack -Q 0
 
 
 
-
-
-#GraphAligner -t ${graph_align_threads} -x vg -g index/index.vg -f ${sample_reads} -a ${sample_name}.gam
-#/home/data/fblanchard/miniconda3/envs/graphaligner_env/bin/GraphAligner -t 8 -x vg -g test/test.vg -f G0_Wb_merged.fastq.gz -a test/graph.gaf
-
-
-
-#vg snarls -x test/graph.xg -o test/index.pb
-
-
-#vg call -a -r test/index.pb -s S100_Wb_noTE_nolow_SV -k test/sample.pack test/graph.xg > S100_Wb_noTE_nolow_SV.vcf
-
-
-
-
-
-
-
-#/home/data/fblanchard/miniconda3/envs/graphaligner_env/bin/GraphAligner \ -t 8 \-x vg \-g test/test.vg \f G0_Wb_merged.fastq.gz \--alignments-out test/graph_alignments.gaf
